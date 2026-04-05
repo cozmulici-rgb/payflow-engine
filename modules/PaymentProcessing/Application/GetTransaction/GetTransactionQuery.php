@@ -19,8 +19,10 @@ final class GetTransactionQuery
                 'status' => $transaction->status->value,
                 'amount' => $transaction->amount,
                 'currency' => $transaction->currency,
+                'settlement_amount' => $transaction->settlementAmount,
                 'settlement_currency' => $transaction->settlementCurrency,
                 'processor_reference' => $transaction->processorReference,
+                'error_code' => $transaction->errorCode,
                 'updated_at' => $transaction->updatedAt,
             ],
         ];

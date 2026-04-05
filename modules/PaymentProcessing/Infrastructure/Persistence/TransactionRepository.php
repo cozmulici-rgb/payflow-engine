@@ -56,6 +56,55 @@ final class TransactionRepository
         return null;
     }
 
+    /**
+     * @param array<string,mixed> $attributes
+     */
+    public function updateStatus(
+        string $transactionId,
+        TransactionStatus $expected,
+        TransactionStatus $next,
+        array $attributes = []
+    ): Transaction {
+        $rows = $this->readJson($this->transactionsPath);
+
+        foreach ($rows as $index => $row) {
+            if (($row['id'] ?? null) !== $transactionId) {
+                continue;
+            }
+
+            $current = Transaction::fromArray($row);
+            if ($current->status !== $expected) {
+                throw new \RuntimeException(sprintf(
+                    'Illegal transition from %s to %s',
+                    $current->status->value,
+                    $next->value
+                ));
+            }
+
+            $updated = array_merge($row, $attributes, [
+                'status' => $next->value,
+                'updated_at' => gmdate(DATE_ATOM),
+            ]);
+
+            $rows[$index] = $updated;
+            $this->writeJson($this->transactionsPath, $rows);
+
+            $history = $this->readJson($this->statusHistoryPath);
+            $history[] = [
+                'id' => $this->uuid(),
+                'transaction_id' => $transactionId,
+                'status' => $next->value,
+                'reason' => $attributes['error_code'] ?? null,
+                'created_at' => $updated['updated_at'],
+            ];
+            $this->writeJson($this->statusHistoryPath, $history);
+
+            return Transaction::fromArray($updated);
+        }
+
+        throw new \RuntimeException('Transaction not found');
+    }
+
     private function readJson(string $path): array
     {
         if (!is_file($path)) {

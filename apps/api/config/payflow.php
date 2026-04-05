@@ -12,6 +12,20 @@ return [
     ],
     'payment_processing' => [
         'transaction_command_topic' => 'transaction.processing',
+        'transaction_event_topic' => 'transaction.events',
         'idempotency_ttl_seconds' => 86400,
+        'processor_timeout_retries' => 1,
+        'default_processor' => 'processor_a',
+    ],
+    'fraud' => [
+        'high_risk_channels' => ['fraud'],
+        'default_action' => 'approve',
+    ],
+    'fx' => [
+        'lock_ttl_seconds' => 1800,
+        'default_rates' => [
+            'CAD:USD' => '0.74000000',
+            'USD:CAD' => '1.35000000',
+        ],
     ],
 ];

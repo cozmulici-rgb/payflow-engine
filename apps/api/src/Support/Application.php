@@ -15,12 +15,18 @@ use Modules\MerchantManagement\Interfaces\Http\CreateMerchantController;
 use Modules\MerchantManagement\Interfaces\Http\IssueApiCredentialController;
 use Modules\PaymentProcessing\Application\CreateTransaction\CreateTransactionHandler;
 use Modules\PaymentProcessing\Application\GetTransaction\GetTransactionQuery;
+use Modules\PaymentProcessing\Application\AuthorizeTransaction\AuthorizeTransactionHandler;
 use Modules\PaymentProcessing\Infrastructure\Messaging\KafkaCommandPublisher;
+use Modules\PaymentProcessing\Infrastructure\Providers\Processor\ProcessorRouter;
+use Modules\PaymentProcessing\Infrastructure\Providers\Fraud\FraudScreeningService;
 use Modules\PaymentProcessing\Infrastructure\Persistence\IdempotencyRepository;
 use Modules\PaymentProcessing\Infrastructure\Persistence\TransactionRepository;
+use Modules\PaymentProcessing\Infrastructure\Workers\ProcessTransactionWorker;
 use Modules\PaymentProcessing\Interfaces\Http\CreateTransactionController;
 use Modules\PaymentProcessing\Interfaces\Http\GetTransactionController;
 use Modules\PaymentProcessing\Interfaces\Http\Requests\CreateTransactionRequest;
+use Modules\FXCrossBorder\Infrastructure\Persistence\RateLockRepository;
+use Modules\FXCrossBorder\Application\LockRate\FxRateLockService;
 use Modules\Shared\Infrastructure\Http\CorrelationIdMiddleware;
 use Modules\Shared\Interfaces\Http\HealthController;
 
@@ -106,6 +112,8 @@ final class Application
             'transaction_status_history.json',
             'idempotency_records.json',
             'command_bus.json',
+            'processed_events.json',
+            'rate_locks.json',
         ] as $file) {
             $path = $this->storagePath . '/' . $file;
             if (is_file($path)) {
@@ -144,6 +152,16 @@ final class Application
         return $this->readJson('command_bus.json');
     }
 
+    public function readProcessedEvents(): array
+    {
+        return $this->readJson('processed_events.json');
+    }
+
+    public function readRateLocks(): array
+    {
+        return $this->readJson('rate_locks.json');
+    }
+
     public function merchantRepository(): FileMerchantRepository
     {
         return new FileMerchantRepository($this->storagePath . '/merchants.json');
@@ -170,6 +188,59 @@ final class Application
             $this->storagePath . '/command_bus.json',
             (string) ($config['payment_processing']['transaction_command_topic'] ?? 'transaction.processing')
         );
+    }
+
+    public function transactionEventPublisher(): KafkaCommandPublisher
+    {
+        $config = require $this->basePath . '/config/payflow.php';
+
+        return new KafkaCommandPublisher(
+            $this->storagePath . '/command_bus.json',
+            (string) ($config['payment_processing']['transaction_event_topic'] ?? 'transaction.events')
+        );
+    }
+
+    public function processTransactionWorker(): ProcessTransactionWorker
+    {
+        return new ProcessTransactionWorker(
+            new AuthorizeTransactionHandler(
+                $this->transactionRepository(),
+                new ProcessorRouter(),
+                new FraudScreeningService(),
+                new FxRateLockService($this->rateLockRepository(), $this->basePath . '/config/payflow.php'),
+                $this->transactionEventPublisher(),
+                $this->auditWriterUseCase(),
+                $this->storagePath . '/processed_events.json',
+                $this->basePath . '/config/payflow.php'
+            )
+        );
+    }
+
+    public function processPendingTransactionCommands(): int
+    {
+        $worker = $this->processTransactionWorker();
+        $processed = 0;
+
+        foreach ($this->readCommandBus() as $message) {
+            if (($message['topic'] ?? null) !== 'transaction.processing') {
+                continue;
+            }
+
+            $payload = $message['payload'] ?? null;
+            if (!is_array($payload)) {
+                continue;
+            }
+
+            $worker->handle($payload);
+            $processed++;
+        }
+
+        return $processed;
+    }
+
+    private function rateLockRepository(): RateLockRepository
+    {
+        return new RateLockRepository($this->storagePath . '/rate_locks.json');
     }
 
     private function auditWriterUseCase(): WriteAuditRecord

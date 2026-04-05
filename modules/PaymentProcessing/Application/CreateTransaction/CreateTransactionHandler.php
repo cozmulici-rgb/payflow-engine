@@ -46,7 +46,12 @@ final class CreateTransactionHandler
             captureMode: $command->captureMode,
             reference: $command->reference,
             status: TransactionStatus::Pending,
+            processorId: null,
             processorReference: null,
+            settlementAmount: null,
+            fxRateLockId: null,
+            errorCode: null,
+            errorMessage: null,
             metadata: $command->metadata,
             createdAt: $timestamp,
             updatedAt: $timestamp
