@@ -1,0 +1,9 @@
+{
+  "name": "payflow-engine-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build"
+  }
+}

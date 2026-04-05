@@ -1,0 +1,14 @@
+{
+  "name": "payflow-engine/api",
+  "description": "Phase 01 bootstrap for Payflow Engine API",
+  "type": "project",
+  "require": {
+    "php": ">=8.2"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/",
+      "Modules\\": "../../modules/"
+    }
+  }
+}

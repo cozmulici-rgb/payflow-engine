@@ -1,0 +1,10 @@
+/apps/api/storage/*.json
+/apps/api/storage/*.log
+/apps/api/vendor/
+/apps/dashboard/.nuxt/
+/apps/dashboard/node_modules/
+/apps/dashboard/dist/
+/.idea/
+/.DS_Store
+docs/.idea/
+docs/.DS_Store

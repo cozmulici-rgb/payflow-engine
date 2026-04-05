@@ -1,0 +1,17 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/bootstrap/app.php';
+
+$app = bootstrap_app(__DIR__);
+$command = $argv[1] ?? null;
+
+if ($command === 'test') {
+    $runner = new App\Support\TestRunner(__DIR__);
+    exit($runner->run());
+}
+
+fwrite(STDERR, "Unknown or missing command. Supported: test\n");
+exit(1);
