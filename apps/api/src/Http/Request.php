@@ -14,7 +14,9 @@ final class Request
         public readonly string $method,
         public readonly string $path,
         public array $headers = [],
-        public array $body = []
+        public array $body = [],
+        /** @var array<string,string> */
+        public array $routeParams = []
     ) {
     }
 
@@ -27,5 +29,10 @@ final class Request
         }
 
         return null;
+    }
+
+    public function routeParam(string $name): ?string
+    {
+        return $this->routeParams[$name] ?? null;
     }
 }

@@ -13,6 +13,14 @@ use Modules\MerchantManagement\Application\IssueApiCredential\IssueApiCredential
 use Modules\MerchantManagement\Infrastructure\Persistence\FileMerchantRepository;
 use Modules\MerchantManagement\Interfaces\Http\CreateMerchantController;
 use Modules\MerchantManagement\Interfaces\Http\IssueApiCredentialController;
+use Modules\PaymentProcessing\Application\CreateTransaction\CreateTransactionHandler;
+use Modules\PaymentProcessing\Application\GetTransaction\GetTransactionQuery;
+use Modules\PaymentProcessing\Infrastructure\Messaging\KafkaCommandPublisher;
+use Modules\PaymentProcessing\Infrastructure\Persistence\IdempotencyRepository;
+use Modules\PaymentProcessing\Infrastructure\Persistence\TransactionRepository;
+use Modules\PaymentProcessing\Interfaces\Http\CreateTransactionController;
+use Modules\PaymentProcessing\Interfaces\Http\GetTransactionController;
+use Modules\PaymentProcessing\Interfaces\Http\Requests\CreateTransactionRequest;
 use Modules\Shared\Infrastructure\Http\CorrelationIdMiddleware;
 use Modules\Shared\Interfaces\Http\HealthController;
 
@@ -32,7 +40,7 @@ final class Application
     public function handle(Request $request): Response
     {
         $request = (new CorrelationIdMiddleware())->handle($request);
-        $handler = $this->routes[$request->method][$request->path] ?? null;
+        $handler = $this->resolveHandler($request);
 
         if ($handler === null) {
             return Response::json(['message' => 'Not Found'], 404);
@@ -66,9 +74,39 @@ final class Application
         );
     }
 
+    public function createTransactionController(): CreateTransactionController
+    {
+        return new CreateTransactionController(
+            $this->merchantRepository(),
+            new CreateTransactionRequest(),
+            new CreateTransactionHandler(
+                $this->transactionRepository(),
+                $this->idempotencyRepository(),
+                $this->commandPublisher(),
+                $this->auditWriterUseCase()
+            )
+        );
+    }
+
+    public function getTransactionController(): GetTransactionController
+    {
+        return new GetTransactionController(
+            $this->merchantRepository(),
+            $this->transactionRepository(),
+            new GetTransactionQuery()
+        );
+    }
+
     public function resetStorage(): void
     {
-        foreach (['merchants.json', 'audit_log.json'] as $file) {
+        foreach ([
+            'merchants.json',
+            'audit_log.json',
+            'transactions.json',
+            'transaction_status_history.json',
+            'idempotency_records.json',
+            'command_bus.json',
+        ] as $file) {
             $path = $this->storagePath . '/' . $file;
             if (is_file($path)) {
                 unlink($path);
@@ -86,14 +124,101 @@ final class Application
         return $this->readJson('merchants.json');
     }
 
+    public function readTransactions(): array
+    {
+        return $this->readJson('transactions.json');
+    }
+
+    public function readTransactionStatusHistory(): array
+    {
+        return $this->readJson('transaction_status_history.json');
+    }
+
+    public function readIdempotencyRecords(): array
+    {
+        return $this->readJson('idempotency_records.json');
+    }
+
+    public function readCommandBus(): array
+    {
+        return $this->readJson('command_bus.json');
+    }
+
     public function merchantRepository(): FileMerchantRepository
     {
         return new FileMerchantRepository($this->storagePath . '/merchants.json');
     }
 
+    public function transactionRepository(): TransactionRepository
+    {
+        return new TransactionRepository(
+            $this->storagePath . '/transactions.json',
+            $this->storagePath . '/transaction_status_history.json'
+        );
+    }
+
+    public function idempotencyRepository(): IdempotencyRepository
+    {
+        return new IdempotencyRepository($this->storagePath . '/idempotency_records.json');
+    }
+
+    public function commandPublisher(): KafkaCommandPublisher
+    {
+        $config = require $this->basePath . '/config/payflow.php';
+
+        return new KafkaCommandPublisher(
+            $this->storagePath . '/command_bus.json',
+            (string) ($config['payment_processing']['transaction_command_topic'] ?? 'transaction.processing')
+        );
+    }
+
     private function auditWriterUseCase(): WriteAuditRecord
     {
         return new WriteAuditRecord(new FileAuditLogWriter($this->storagePath . '/audit_log.json'));
+    }
+
+    private function resolveHandler(Request $request): ?callable
+    {
+        foreach ($this->routes[$request->method] ?? [] as $pattern => $handler) {
+            $params = $this->matchRoute($pattern, $request->path);
+            if ($params === null) {
+                continue;
+            }
+
+            $request->routeParams = $params;
+            return $handler;
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string,string>|null
+     */
+    private function matchRoute(string $pattern, string $path): ?array
+    {
+        if ($pattern === $path) {
+            return [];
+        }
+
+        $regex = preg_replace_callback(
+            '/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/',
+            static fn (array $matches): string => '(?P<' . $matches[1] . '>[^/]+)',
+            $pattern
+        );
+
+        if ($regex === null || !preg_match('#^' . $regex . '$#', $path, $matches)) {
+            return null;
+        }
+
+        $params = [];
+        foreach ($matches as $key => $value) {
+            if (is_string($key)) {
+                $params[$key] = $value;
+            }
+        }
+
+        return $params;
     }
 
     private function readJson(string $file): array

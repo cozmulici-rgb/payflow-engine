@@ -58,6 +58,26 @@ final class FileMerchantRepository
         throw new \RuntimeException('Merchant not found');
     }
 
+    public function verifyCredential(string $merchantId, string $keyId, string $secret): ?Merchant
+    {
+        $merchant = $this->find($merchantId);
+        if ($merchant === null) {
+            return null;
+        }
+
+        foreach ($merchant->credentials as $credential) {
+            if (($credential['key_id'] ?? null) !== $keyId) {
+                continue;
+            }
+
+            if (password_verify($secret, (string) ($credential['secret_hash'] ?? ''))) {
+                return $merchant;
+            }
+        }
+
+        return null;
+    }
+
     private function readAll(): array
     {
         if (!is_file($this->path)) {
