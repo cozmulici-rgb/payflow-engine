@@ -17,6 +17,9 @@ function api_routes(): array
             '/internal/v1/merchants' => static fn (Request $request, Application $app) => $app->createMerchantController()->handle($request),
             '/internal/v1/merchants/credentials' => static fn (Request $request, Application $app) => $app->issueApiCredentialController()->handle($request),
             '/v1/transactions' => static fn (Request $request, Application $app) => $app->createTransactionController()->handle($request),
+            '/v1/transactions/{transaction_id}/capture' => static fn (Request $request, Application $app) => $app->captureTransactionController()->handle($request),
+            '/v1/transactions/{transaction_id}/refund' => static fn (Request $request, Application $app) => $app->refundTransactionController()->handle($request),
+            '/v1/webhook-endpoints' => static fn (Request $request, Application $app) => $app->registerWebhookController()->handle($request),
         ],
     ];
 }

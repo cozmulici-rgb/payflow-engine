@@ -9,4 +9,6 @@ use Modules\PaymentProcessing\Domain\Transaction;
 interface LedgerPostingService
 {
     public function postAuthorization(Transaction $transaction): string;
+
+    public function postRefund(Transaction $transaction): string;
 }

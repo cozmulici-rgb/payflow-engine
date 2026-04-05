@@ -23,6 +23,9 @@ final class TransactionStateMachine
                 TransactionStatus::Settled->value,
                 TransactionStatus::RefundPending->value,
             ],
+            TransactionStatus::Settled->value => [
+                TransactionStatus::RefundPending->value,
+            ],
             TransactionStatus::RefundPending->value => [
                 TransactionStatus::Refunded->value,
                 TransactionStatus::Failed->value,

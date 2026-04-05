@@ -13,21 +13,31 @@ use Modules\Ledger\Application\PostAuthorizationLedgerEntries;
 use Modules\Ledger\Infrastructure\Persistence\LedgerRepository;
 use Modules\MerchantManagement\Application\CreateMerchant\CreateMerchantHandler;
 use Modules\MerchantManagement\Application\IssueApiCredential\IssueApiCredentialHandler;
+use Modules\MerchantManagement\Application\RegisterWebhook\RegisterWebhookHandler;
 use Modules\MerchantManagement\Infrastructure\Persistence\FileMerchantRepository;
+use Modules\MerchantManagement\Infrastructure\Persistence\WebhookEndpointRepository;
 use Modules\MerchantManagement\Interfaces\Http\CreateMerchantController;
 use Modules\MerchantManagement\Interfaces\Http\IssueApiCredentialController;
+use Modules\MerchantManagement\Interfaces\Http\RegisterWebhookController;
+use Modules\PaymentProcessing\Application\CaptureTransaction\CaptureTransactionHandler;
 use Modules\PaymentProcessing\Application\CreateTransaction\CreateTransactionHandler;
 use Modules\PaymentProcessing\Application\GetTransaction\GetTransactionQuery;
 use Modules\PaymentProcessing\Application\AuthorizeTransaction\AuthorizeTransactionHandler;
+use Modules\PaymentProcessing\Application\RefundTransaction\RefundTransactionHandler;
 use Modules\PaymentProcessing\Infrastructure\Messaging\KafkaCommandPublisher;
 use Modules\PaymentProcessing\Infrastructure\Providers\Processor\ProcessorRouter;
 use Modules\PaymentProcessing\Infrastructure\Providers\Fraud\FraudScreeningService;
 use Modules\PaymentProcessing\Infrastructure\Persistence\IdempotencyRepository;
 use Modules\PaymentProcessing\Infrastructure\Persistence\TransactionRepository;
 use Modules\PaymentProcessing\Infrastructure\Workers\ProcessTransactionWorker;
+use Modules\PaymentProcessing\Interfaces\Http\CaptureTransactionController;
 use Modules\PaymentProcessing\Interfaces\Http\CreateTransactionController;
 use Modules\PaymentProcessing\Interfaces\Http\GetTransactionController;
+use Modules\PaymentProcessing\Interfaces\Http\RefundTransactionController;
 use Modules\PaymentProcessing\Interfaces\Http\Requests\CreateTransactionRequest;
+use Modules\Shared\Infrastructure\Http\WebhookSigner;
+use Modules\Shared\Infrastructure\Persistence\WebhookDeliveryRepository;
+use Modules\Shared\Infrastructure\Workers\WebhookDispatchWorker;
 use Modules\FXCrossBorder\Infrastructure\Persistence\RateLockRepository;
 use Modules\FXCrossBorder\Application\LockRate\FxRateLockService;
 use Modules\Shared\Infrastructure\Http\CorrelationIdMiddleware;
@@ -106,6 +116,45 @@ final class Application
         );
     }
 
+    public function captureTransactionController(): CaptureTransactionController
+    {
+        return new CaptureTransactionController(
+            $this->merchantRepository(),
+            new CaptureTransactionHandler(
+                $this->transactionRepository(),
+                new ProcessorRouter(),
+                $this->transactionEventPublisher(),
+                $this->auditWriterUseCase()
+            )
+        );
+    }
+
+    public function refundTransactionController(): RefundTransactionController
+    {
+        return new RefundTransactionController(
+            $this->merchantRepository(),
+            new RefundTransactionHandler(
+                $this->transactionRepository(),
+                new ProcessorRouter(),
+                $this->transactionEventPublisher(),
+                $this->auditWriterUseCase(),
+                $this->ledgerPostingService(),
+                $this->storagePath
+            )
+        );
+    }
+
+    public function registerWebhookController(): RegisterWebhookController
+    {
+        return new RegisterWebhookController(
+            $this->merchantRepository(),
+            new RegisterWebhookHandler(
+                $this->webhookEndpointRepository(),
+                $this->auditWriterUseCase()
+            )
+        );
+    }
+
     public function resetStorage(): void
     {
         foreach ([
@@ -120,6 +169,8 @@ final class Application
             'accounts.json',
             'journal_entries.json',
             'ledger_entries.json',
+            'webhook_endpoints.json',
+            'webhook_deliveries.json',
         ] as $file) {
             $path = $this->storagePath . '/' . $file;
             if (is_file($path)) {
@@ -183,6 +234,16 @@ final class Application
         return $this->readJson('ledger_entries.json');
     }
 
+    public function readWebhookEndpoints(): array
+    {
+        return $this->readJson('webhook_endpoints.json');
+    }
+
+    public function readWebhookDeliveries(): array
+    {
+        return $this->readJson('webhook_deliveries.json');
+    }
+
     public function merchantRepository(): FileMerchantRepository
     {
         return new FileMerchantRepository($this->storagePath . '/merchants.json');
@@ -213,11 +274,9 @@ final class Application
 
     public function transactionEventPublisher(): KafkaCommandPublisher
     {
-        $config = require $this->basePath . '/config/payflow.php';
-
         return new KafkaCommandPublisher(
             $this->storagePath . '/command_bus.json',
-            (string) ($config['payment_processing']['transaction_event_topic'] ?? 'transaction.events')
+            $this->transactionEventTopic()
         );
     }
 
@@ -260,9 +319,49 @@ final class Application
         return $processed;
     }
 
+    public function processWebhookEvents(): int
+    {
+        $worker = new WebhookDispatchWorker(
+            $this->webhookEndpointRepository(),
+            new WebhookDeliveryRepository($this->storagePath . '/webhook_deliveries.json'),
+            new WebhookSigner(),
+            $this->auditWriterUseCase(),
+            $this->storagePath . '/processed_events.json'
+        );
+        $processed = 0;
+
+        foreach ($this->readCommandBus() as $message) {
+            if (($message['topic'] ?? null) !== $this->transactionEventTopic()) {
+                continue;
+            }
+
+            $payload = $message['payload'] ?? null;
+            if (!is_array($payload)) {
+                continue;
+            }
+
+            $worker->handle($payload);
+            $processed++;
+        }
+
+        return $processed;
+    }
+
     private function rateLockRepository(): RateLockRepository
     {
         return new RateLockRepository($this->storagePath . '/rate_locks.json');
+    }
+
+    private function webhookEndpointRepository(): WebhookEndpointRepository
+    {
+        return new WebhookEndpointRepository($this->storagePath . '/webhook_endpoints.json');
+    }
+
+    private function transactionEventTopic(): string
+    {
+        $config = require $this->basePath . '/config/payflow.php';
+
+        return (string) ($config['payment_processing']['transaction_event_topic'] ?? 'transaction.events');
     }
 
     private function auditWriterUseCase(): WriteAuditRecord

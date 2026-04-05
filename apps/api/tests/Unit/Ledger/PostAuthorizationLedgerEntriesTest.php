@@ -75,6 +75,43 @@ $codes = array_values(array_unique([
 sort($codes);
 TestCase::assertSame(['merchant_payable', 'processor_receivable'], $codes);
 
+$refundTransaction = new Transaction(
+    id: 'trx-ledger-2',
+    merchantId: 'merchant-1',
+    idempotencyKey: 'idem-ledger-2',
+    type: 'authorization',
+    amount: '100.00',
+    currency: 'CAD',
+    settlementCurrency: 'USD',
+    paymentMethodType: 'card_token',
+    paymentMethodToken: 'tok_1',
+    captureMode: 'manual',
+    reference: 'order-2',
+    status: TransactionStatus::Refunded,
+    processorId: 'processor_a',
+    processorReference: 'proc-refund-1',
+    settlementAmount: '74.0000',
+    fxRateLockId: 'fx-lock-2',
+    errorCode: null,
+    errorMessage: null,
+    metadata: ['refunded_amount' => '20.00'],
+    createdAt: '2026-04-05T00:00:00+00:00',
+    updatedAt: '2026-04-05T00:01:00+00:00'
+);
+
+$refundJournalEntryId = $service->postRefund($refundTransaction);
+$refundJournals = json_decode((string) file_get_contents($journalPath), true);
+$refundEntries = json_decode((string) file_get_contents($ledgerPath), true);
+
+TestCase::assertSame(2, count($refundJournals));
+TestCase::assertSame($refundJournalEntryId, $refundJournals[1]['id']);
+TestCase::assertSame('transaction.refund', $refundJournals[1]['reference_type']);
+TestCase::assertSame(4, count($refundEntries));
+TestCase::assertSame('14.8000', $refundEntries[2]['amount']);
+TestCase::assertSame('14.8000', $refundEntries[3]['amount']);
+TestCase::assertSame('USD', $refundEntries[2]['currency']);
+TestCase::assertSame('USD', $refundEntries[3]['currency']);
+
 foreach ([$accountsPath, $journalPath, $ledgerPath] as $path) {
     @unlink($path);
 }

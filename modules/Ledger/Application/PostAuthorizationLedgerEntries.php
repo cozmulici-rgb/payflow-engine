@@ -57,6 +57,49 @@ final class PostAuthorizationLedgerEntries implements LedgerPostingService
         return $journalEntry->id;
     }
 
+    public function postRefund(Transaction $transaction): string
+    {
+        $processorReceivable = $this->requireAccountId('processor_receivable');
+        $merchantPayable = $this->requireAccountId('merchant_payable');
+        $currency = strtoupper($transaction->settlementCurrency !== '' ? $transaction->settlementCurrency : $transaction->currency);
+        $amount = $this->refundSettlementAmount($transaction);
+        $journalEntry = new JournalEntry(
+            id: $this->uuid(),
+            referenceType: 'transaction.refund',
+            referenceId: $transaction->id,
+            description: sprintf('Refund for transaction %s', $transaction->id),
+            effectiveDate: substr($transaction->updatedAt, 0, 10),
+            createdAt: gmdate(DATE_ATOM)
+        );
+
+        $this->ledger->appendJournalEntry($journalEntry, [
+            [
+                'account_id' => $merchantPayable,
+                'entry_type' => 'debit',
+                'amount' => $amount,
+                'currency' => $currency,
+                'transaction_id' => $transaction->id,
+                'settlement_batch_id' => null,
+                'description' => $journalEntry->description,
+                'effective_date' => $journalEntry->effectiveDate,
+                'created_at' => $journalEntry->createdAt,
+            ],
+            [
+                'account_id' => $processorReceivable,
+                'entry_type' => 'credit',
+                'amount' => $amount,
+                'currency' => $currency,
+                'transaction_id' => $transaction->id,
+                'settlement_batch_id' => null,
+                'description' => $journalEntry->description,
+                'effective_date' => $journalEntry->effectiveDate,
+                'created_at' => $journalEntry->createdAt,
+            ],
+        ]);
+
+        return $journalEntry->id;
+    }
+
     private function requireAccountId(string $code): string
     {
         $account = $this->ledger->findAccountByCode($code);
@@ -70,6 +113,27 @@ final class PostAuthorizationLedgerEntries implements LedgerPostingService
     private function normalizeAmount(string $amount): string
     {
         return number_format((float) $amount, 4, '.', '');
+    }
+
+    private function refundSettlementAmount(Transaction $transaction): string
+    {
+        $refundAmount = $transaction->metadata['refunded_amount'] ?? null;
+        if ($refundAmount === null) {
+            return $this->normalizeAmount((string) ($transaction->settlementAmount ?? $transaction->amount));
+        }
+
+        if ($transaction->settlementCurrency === $transaction->currency || $transaction->settlementAmount === null) {
+            return $this->normalizeAmount((string) $refundAmount);
+        }
+
+        $transactionAmount = (float) $transaction->amount;
+        if ($transactionAmount <= 0) {
+            return $this->normalizeAmount((string) $refundAmount);
+        }
+
+        $settlementRatio = (float) $transaction->settlementAmount / $transactionAmount;
+
+        return $this->normalizeAmount((string) ((float) $refundAmount * $settlementRatio));
     }
 
     private function uuid(): string
