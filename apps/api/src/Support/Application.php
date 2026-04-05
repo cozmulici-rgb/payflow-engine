@@ -6,8 +6,11 @@ namespace App\Support;
 
 use App\Http\Request;
 use App\Http\Response;
+use Database\Seeders\ChartOfAccountsSeeder;
 use Modules\Audit\Application\WriteAuditRecord;
 use Modules\Audit\Infrastructure\Persistence\FileAuditLogWriter;
+use Modules\Ledger\Application\PostAuthorizationLedgerEntries;
+use Modules\Ledger\Infrastructure\Persistence\LedgerRepository;
 use Modules\MerchantManagement\Application\CreateMerchant\CreateMerchantHandler;
 use Modules\MerchantManagement\Application\IssueApiCredential\IssueApiCredentialHandler;
 use Modules\MerchantManagement\Infrastructure\Persistence\FileMerchantRepository;
@@ -114,6 +117,9 @@ final class Application
             'command_bus.json',
             'processed_events.json',
             'rate_locks.json',
+            'accounts.json',
+            'journal_entries.json',
+            'ledger_entries.json',
         ] as $file) {
             $path = $this->storagePath . '/' . $file;
             if (is_file($path)) {
@@ -160,6 +166,21 @@ final class Application
     public function readRateLocks(): array
     {
         return $this->readJson('rate_locks.json');
+    }
+
+    public function readAccounts(): array
+    {
+        return $this->readJson('accounts.json');
+    }
+
+    public function readJournalEntries(): array
+    {
+        return $this->readJson('journal_entries.json');
+    }
+
+    public function readLedgerEntries(): array
+    {
+        return $this->readJson('ledger_entries.json');
     }
 
     public function merchantRepository(): FileMerchantRepository
@@ -210,6 +231,7 @@ final class Application
                 new FxRateLockService($this->rateLockRepository(), $this->basePath . '/config/payflow.php'),
                 $this->transactionEventPublisher(),
                 $this->auditWriterUseCase(),
+                $this->ledgerPostingService(),
                 $this->storagePath . '/processed_events.json',
                 $this->basePath . '/config/payflow.php'
             )
@@ -246,6 +268,19 @@ final class Application
     private function auditWriterUseCase(): WriteAuditRecord
     {
         return new WriteAuditRecord(new FileAuditLogWriter($this->storagePath . '/audit_log.json'));
+    }
+
+    private function ledgerPostingService(): PostAuthorizationLedgerEntries
+    {
+        $ledger = new LedgerRepository(
+            $this->storagePath . '/accounts.json',
+            $this->storagePath . '/journal_entries.json',
+            $this->storagePath . '/ledger_entries.json'
+        );
+
+        (new ChartOfAccountsSeeder($ledger))->seed();
+
+        return new PostAuthorizationLedgerEntries($ledger);
     }
 
     private function resolveHandler(Request $request): ?callable

@@ -7,6 +7,7 @@ namespace Modules\PaymentProcessing\Application\AuthorizeTransaction;
 use Modules\Audit\Application\WriteAuditRecord;
 use Modules\FXCrossBorder\Application\LockRate\FxQuoteRequest;
 use Modules\FXCrossBorder\Application\LockRate\FxRateLockService;
+use Modules\Ledger\Application\LedgerPostingService;
 use Modules\PaymentProcessing\Domain\Events\TransactionAuthorized;
 use Modules\PaymentProcessing\Domain\Events\TransactionFailed;
 use Modules\PaymentProcessing\Domain\TransactionStateMachine;
@@ -25,6 +26,7 @@ final class AuthorizeTransactionHandler
         private readonly FxRateLockService $fxLocks,
         private readonly KafkaCommandPublisher $events,
         private readonly WriteAuditRecord $auditWriter,
+        private readonly LedgerPostingService $ledger,
         private readonly string $processedEventsPath,
         private readonly string $configPath
     ) {
@@ -140,23 +142,23 @@ final class AuthorizeTransactionHandler
             return;
         }
 
-        $authorized = $this->transactions->updateStatus(
-            $transaction->id,
-            TransactionStatus::Pending,
-            TransactionStatus::Authorized,
-            [
-                'processor_id' => $result->processorId,
-                'processor_reference' => $result->processorReference,
-                'fx_rate_lock_id' => $rateLock['id'] ?? null,
-                'settlement_amount' => $rateLock['settlement_amount'] ?? $transaction->amount,
-                'error_code' => null,
-                'error_message' => null,
-            ]
+        ['transaction' => $authorized, 'journal_entry_id' => $journalEntryId] = $this->withAuthorizationLedgerTransaction(
+            fn (): array => $this->authorizeAndPostLedger($transaction, $result, $rateLock)
         );
 
         if ($rateLock !== null) {
             $this->fxLocks->markUsed((string) $rateLock['id']);
         }
+
+        $this->auditWriter->handleLedgerPosting([
+            'actor_id' => $transaction->merchantId,
+            'correlation_id' => (string) ($command['correlation_id'] ?? ''),
+            'context' => [
+                'transaction_id' => $authorized->id,
+                'processor_id' => $authorized->processorId,
+                'processor_reference' => $authorized->processorReference,
+            ],
+        ], $journalEntryId);
 
         $this->auditWriter->handle([
             'event_type' => 'transaction.authorized',
@@ -233,5 +235,91 @@ final class AuthorizeTransactionHandler
             random_int(0, 0xffff),
             random_int(0, 0xffff)
         );
+    }
+
+    /**
+     * @param array<string,mixed>|null $rateLock
+     * @return array{transaction:\Modules\PaymentProcessing\Domain\Transaction,journal_entry_id:string}
+     */
+    private function authorizeAndPostLedger(
+        \Modules\PaymentProcessing\Domain\Transaction $transaction,
+        ProcessorAuthorizationResult $result,
+        ?array $rateLock
+    ): array {
+        $authorized = $this->transactions->updateStatus(
+            $transaction->id,
+            TransactionStatus::Pending,
+            TransactionStatus::Authorized,
+            [
+                'processor_id' => $result->processorId,
+                'processor_reference' => $result->processorReference,
+                'fx_rate_lock_id' => $rateLock['id'] ?? null,
+                'settlement_amount' => $rateLock['settlement_amount'] ?? $transaction->amount,
+                'error_code' => null,
+                'error_message' => null,
+            ]
+        );
+
+        return [
+            'transaction' => $authorized,
+            'journal_entry_id' => $this->ledger->postAuthorization($authorized),
+        ];
+    }
+
+    /**
+     * @template T
+     * @param callable():T $callback
+     * @return T
+     */
+    private function withAuthorizationLedgerTransaction(callable $callback): mixed
+    {
+        $storagePath = dirname($this->processedEventsPath);
+        $snapshots = $this->captureSnapshots([
+            $storagePath . '/transactions.json',
+            $storagePath . '/transaction_status_history.json',
+            $storagePath . '/rate_locks.json',
+            $storagePath . '/journal_entries.json',
+            $storagePath . '/ledger_entries.json',
+        ]);
+
+        try {
+            return $callback();
+        } catch (\Throwable $exception) {
+            $this->restoreSnapshots($snapshots);
+            throw $exception;
+        }
+    }
+
+    /**
+     * @param list<string> $paths
+     * @return array<string,string|null>
+     */
+    private function captureSnapshots(array $paths): array
+    {
+        $snapshots = [];
+
+        foreach ($paths as $path) {
+            $snapshots[$path] = is_file($path) ? (string) file_get_contents($path) : null;
+        }
+
+        return $snapshots;
+    }
+
+    /**
+     * @param array<string,string|null> $snapshots
+     */
+    private function restoreSnapshots(array $snapshots): void
+    {
+        foreach ($snapshots as $path => $contents) {
+            if ($contents === null) {
+                if (is_file($path)) {
+                    unlink($path);
+                }
+
+                continue;
+            }
+
+            file_put_contents($path, $contents);
+        }
     }
 }

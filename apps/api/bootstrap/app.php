@@ -6,6 +6,7 @@ spl_autoload_register(static function (string $class): void {
     $prefixes = [
         'App\\' => __DIR__ . '/../src/',
         'Modules\\' => __DIR__ . '/../../../modules/',
+        'Database\\' => __DIR__ . '/../database/',
     ];
 
     foreach ($prefixes as $prefix => $baseDir) {

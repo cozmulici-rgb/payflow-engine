@@ -22,6 +22,26 @@ final class WriteAuditRecord
         $this->writer->append($record);
     }
 
+    /**
+     * @param array<string,mixed> $record
+     */
+    public function handleLedgerPosting(array $record, string $journalEntryId): void
+    {
+        $context = $record['context'] ?? [];
+        if (!is_array($context)) {
+            $context = [];
+        }
+
+        $context['journal_entry_id'] ??= $journalEntryId;
+        $record['event_type'] ??= 'ledger.authorization_posted';
+        $record['action'] ??= 'post';
+        $record['resource_type'] ??= 'journal_entry';
+        $record['resource_id'] ??= $journalEntryId;
+        $record['context'] = $context;
+
+        $this->handle($record);
+    }
+
     private function uuid(): string
     {
         return sprintf(
