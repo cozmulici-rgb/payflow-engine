@@ -1,6 +1,6 @@
 ## Behat Scenario Coverage
 
-This directory captures Gherkin scenarios for the logic implemented across phases 1 through 5.
+This directory captures Gherkin scenarios for the logic implemented across phases 1 through 6.
 
 The repo does not currently include a Behat runtime or `FeatureContext`, so these feature files are scenario specifications mapped to the existing lightweight PHP tests.
 
@@ -32,3 +32,7 @@ The repo does not currently include a Behat runtime or `FeatureContext`, so thes
   `tests/Feature/Merchant/CaptureTransactionTest.php`
   `tests/Feature/Merchant/RefundTransactionTest.php`
   `tests/Integration/Webhooks/WebhookDispatchTest.php`
+- `features/phase-06-settlement-batch-generation.feature`
+  Maps to:
+  `tests/Integration/Settlement/CreateSettlementBatchTest.php`
+  `tests/Integration/Settlement/SubmitSettlementBatchTest.php`

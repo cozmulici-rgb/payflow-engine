@@ -34,6 +34,8 @@ final class FeatureContext implements Context
     private array $transactionAliases = [];
     private ?string $currentTransactionId = null;
     private ?int $lastProcessedCount = null;
+    /** @var array<string,mixed>|null */
+    private ?array $settlementRunResult = null;
     private ?\Throwable $caughtException = null;
 
     /** @BeforeScenario */
@@ -50,6 +52,7 @@ final class FeatureContext implements Context
         $this->transactionAliases = [];
         $this->currentTransactionId = null;
         $this->lastProcessedCount = null;
+        $this->settlementRunResult = null;
         $this->caughtException = null;
     }
 
@@ -392,22 +395,7 @@ final class FeatureContext implements Context
     /** @Given the merchant has an authorized transaction for amount :amount in currency :currency */
     public function theMerchantHasAnAuthorizedTransactionForAmountInCurrency(string $amount, string $currency): void
     {
-        $this->response = $this->app->handle(new Request(
-            'POST',
-            '/v1/transactions',
-            $this->merchantHeaders('idem-authorized-' . preg_replace('/\W+/', '-', $amount), 'corr-create-authorized'),
-            [
-                'type' => 'authorization',
-                'amount' => $amount,
-                'currency' => $currency,
-                'settlement_currency' => 'USD',
-                'payment_method' => ['type' => 'card_token', 'token' => 'tok_capture'],
-                'capture_mode' => 'manual',
-            ]
-        ));
-
-        $this->currentTransactionId = (string) ($this->response->body['data']['transaction_id'] ?? '');
-        $this->app->processPendingTransactionCommands();
+        $this->currentTransactionId = $this->createAuthorizedTransaction($amount, $currency);
     }
 
     /** @When the merchant captures the transaction for amount :amount */
@@ -419,6 +407,41 @@ final class FeatureContext implements Context
             $this->merchantHeaders(null, 'corr-capture'),
             ['amount' => $amount]
         ));
+    }
+
+    /** @Given the merchant has captured settlement-eligible transactions for amounts: */
+    public function theMerchantHasCapturedSettlementEligibleTransactionsForAmounts(TableNode $table): void
+    {
+        foreach ($table->getRows() as $index => $row) {
+            $amount = (string) ($row[0] ?? '');
+            $transactionId = $this->createAuthorizedTransaction($amount, 'CAD', 'web', 'CAD', 'idem-settlement-row-' . $index);
+            $this->currentTransactionId = $transactionId;
+            $this->theMerchantCapturesTheTransactionForAmount($amount);
+            $this->assertSame(202, $this->requireResponse()->status);
+        }
+    }
+
+    /** @Given the merchant has captured a settlement transaction for amount :amount on processor :processor */
+    public function theMerchantHasCapturedASettlementTransactionForAmountOnProcessor(string $amount, string $processor): void
+    {
+        $transactionId = $this->createAuthorizedTransaction($amount, 'CAD', $processor, 'CAD', 'idem-settlement-processor-' . strtolower($processor));
+        $this->currentTransactionId = $transactionId;
+        $this->theMerchantCapturesTheTransactionForAmount($amount);
+        $this->assertSame(202, $this->requireResponse()->status);
+    }
+
+    /** @When the settlement window runs for batch date :batchDate */
+    public function theSettlementWindowRunsForBatchDate(string $batchDate): void
+    {
+        $this->settlementRunResult = $this->app->runSettlementWindow($batchDate);
+    }
+
+    /** @When the settlement window runs for batch date :batchDate with submission failure for processor :processor */
+    public function theSettlementWindowRunsForBatchDateWithSubmissionFailureForProcessor(string $batchDate, string $processor): void
+    {
+        $this->settlementRunResult = $this->app->runSettlementWindow($batchDate, [
+            'failure_processors' => [$processor],
+        ]);
     }
 
     /** @Given the merchant already captured the transaction for amount :amount */
@@ -790,6 +813,52 @@ final class FeatureContext implements Context
         $this->assertSame($count, count($this->app->readWebhookDeliveries()));
     }
 
+    /** @Then exactly :count settlement batch should be stored */
+    public function exactlySettlementBatchShouldBeStored(int $count): void
+    {
+        $this->assertSame($count, count($this->app->readSettlementBatches()));
+    }
+
+    /** @Then the settlement batch status should be :status */
+    public function theSettlementBatchStatusShouldBe(string $status): void
+    {
+        $batches = $this->app->readSettlementBatches();
+        $this->assertSame($status, $batches[0]['status'] ?? null);
+    }
+
+    /** @Then the settlement batch item count should be :count */
+    public function theSettlementBatchItemCountShouldBe(int $count): void
+    {
+        $batches = $this->app->readSettlementBatches();
+        $this->assertSame($count, $batches[0]['item_count'] ?? null);
+    }
+
+    /** @Then the settlement batch total amount should be :amount */
+    public function theSettlementBatchTotalAmountShouldBe(string $amount): void
+    {
+        $batches = $this->app->readSettlementBatches();
+        $this->assertSame($amount, (string) ($batches[0]['total_amount'] ?? null));
+    }
+
+    /** @Then exactly :count settlement items should be stored */
+    public function exactlySettlementItemsShouldBeStored(int $count): void
+    {
+        $this->assertSame($count, count($this->app->readSettlementItems()));
+    }
+
+    /** @Then exactly :count settlement artifact should be stored */
+    public function exactlySettlementArtifactShouldBeStored(int $count): void
+    {
+        $this->assertSame($count, count($this->app->readSettlementArtifacts()));
+    }
+
+    /** @Then the settlement batch exception reason should be :reason */
+    public function theSettlementBatchExceptionReasonShouldBe(string $reason): void
+    {
+        $batches = $this->app->readSettlementBatches();
+        $this->assertSame($reason, $batches[0]['exception_reason'] ?? null);
+    }
+
     /** @Then the first delivery event type should be :eventType */
     public function theFirstDeliveryEventTypeShouldBe(string $eventType): void
     {
@@ -870,6 +939,36 @@ final class FeatureContext implements Context
                 'channel' => 'web',
             ],
         ];
+    }
+
+    private function createAuthorizedTransaction(
+        string $amount,
+        string $currency,
+        string $channel = 'web',
+        string $settlementCurrency = 'USD',
+        ?string $idempotencyKey = null
+    ): string {
+        $key = $idempotencyKey ?? 'idem-authorized-' . preg_replace('/\W+/', '-', $amount) . '-' . $channel;
+        $response = $this->app->handle(new Request(
+            'POST',
+            '/v1/transactions',
+            $this->merchantHeaders($key, 'corr-create-authorized'),
+            [
+                'type' => 'authorization',
+                'amount' => $amount,
+                'currency' => $currency,
+                'settlement_currency' => $settlementCurrency,
+                'payment_method' => ['type' => 'card_token', 'token' => 'tok_capture_' . substr(md5($key), 0, 8)],
+                'capture_mode' => 'manual',
+                'metadata' => ['channel' => $channel],
+            ]
+        ));
+
+        $transactionId = (string) ($response->body['data']['transaction_id'] ?? '');
+        $this->assertNotEmpty($transactionId, 'Expected authorized transaction id');
+        $this->app->processPendingTransactionCommands();
+
+        return $transactionId;
     }
 
     /**

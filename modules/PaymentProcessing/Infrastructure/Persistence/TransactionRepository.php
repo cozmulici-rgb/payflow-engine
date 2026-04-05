@@ -45,6 +45,17 @@ final class TransactionRepository
         return null;
     }
 
+    /**
+     * @return list<Transaction>
+     */
+    public function all(): array
+    {
+        return array_map(
+            static fn (array $row): Transaction => (new EloquentTransaction($row))->toDomain(),
+            $this->readJson($this->transactionsPath)
+        );
+    }
+
     public function findByIdempotencyKey(string $merchantId, string $idempotencyKey): ?Transaction
     {
         foreach ($this->readJson($this->transactionsPath) as $row) {

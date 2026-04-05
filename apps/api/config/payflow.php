@@ -28,4 +28,10 @@ return [
             'USD:CAD' => '1.35000000',
         ],
     ],
+    'settlement' => [
+        'artifact_topic' => 'settlement.events',
+        'artifact_disk' => 'storage/settlement_artifacts',
+        'failure_processors' => [],
+        'fail_artifact_writes' => false,
+    ],
 ];

@@ -35,6 +35,13 @@ use Modules\PaymentProcessing\Interfaces\Http\CreateTransactionController;
 use Modules\PaymentProcessing\Interfaces\Http\GetTransactionController;
 use Modules\PaymentProcessing\Interfaces\Http\RefundTransactionController;
 use Modules\PaymentProcessing\Interfaces\Http\Requests\CreateTransactionRequest;
+use Modules\Settlement\Application\CreateSettlementBatch\CreateSettlementBatchHandler;
+use Modules\Settlement\Application\SubmitSettlementBatch\SubmitSettlementBatchHandler;
+use Modules\Settlement\Infrastructure\Console\RunSettlementWindowCommand;
+use Modules\Settlement\Infrastructure\Files\SettlementFileGenerator;
+use Modules\Settlement\Infrastructure\Persistence\SettlementBatchRepository;
+use Modules\Settlement\Infrastructure\Providers\SettlementSubmissionGateway;
+use Modules\Settlement\Infrastructure\Storage\SettlementArtifactStore;
 use Modules\Shared\Infrastructure\Http\WebhookSigner;
 use Modules\Shared\Infrastructure\Persistence\WebhookDeliveryRepository;
 use Modules\Shared\Infrastructure\Workers\WebhookDispatchWorker;
@@ -169,6 +176,8 @@ final class Application
             'accounts.json',
             'journal_entries.json',
             'ledger_entries.json',
+            'settlement_batches.json',
+            'settlement_items.json',
             'webhook_endpoints.json',
             'webhook_deliveries.json',
         ] as $file) {
@@ -176,6 +185,16 @@ final class Application
             if (is_file($path)) {
                 unlink($path);
             }
+        }
+
+        $artifactPath = $this->storagePath . '/settlement_artifacts';
+        if (is_dir($artifactPath)) {
+            foreach (glob($artifactPath . '/*') ?: [] as $file) {
+                if (is_file($file)) {
+                    unlink($file);
+                }
+            }
+            @rmdir($artifactPath);
         }
     }
 
@@ -237,6 +256,34 @@ final class Application
     public function readWebhookEndpoints(): array
     {
         return $this->readJson('webhook_endpoints.json');
+    }
+
+    public function readSettlementBatches(): array
+    {
+        return $this->readJson('settlement_batches.json');
+    }
+
+    public function readSettlementItems(): array
+    {
+        return $this->readJson('settlement_items.json');
+    }
+
+    public function readSettlementArtifacts(): array
+    {
+        $artifactPath = $this->storagePath . '/settlement_artifacts';
+        if (!is_dir($artifactPath)) {
+            return [];
+        }
+
+        $artifacts = [];
+        foreach (glob($artifactPath . '/*.csv') ?: [] as $file) {
+            $artifacts[] = [
+                'path' => $file,
+                'contents' => (string) file_get_contents($file),
+            ];
+        }
+
+        return $artifacts;
     }
 
     public function readWebhookDeliveries(): array
@@ -347,6 +394,15 @@ final class Application
         return $processed;
     }
 
+    /**
+     * @param array<string,mixed> $overrides
+     * @return array{batch_count:int,submitted_count:int,exception_count:int}
+     */
+    public function runSettlementWindow(string $batchDate, array $overrides = []): array
+    {
+        return $this->settlementWindowCommand($overrides)->handle($batchDate);
+    }
+
     private function rateLockRepository(): RateLockRepository
     {
         return new RateLockRepository($this->storagePath . '/rate_locks.json');
@@ -355,6 +411,50 @@ final class Application
     private function webhookEndpointRepository(): WebhookEndpointRepository
     {
         return new WebhookEndpointRepository($this->storagePath . '/webhook_endpoints.json');
+    }
+
+    private function settlementBatchRepository(): SettlementBatchRepository
+    {
+        return new SettlementBatchRepository(
+            $this->storagePath . '/settlement_batches.json',
+            $this->storagePath . '/settlement_items.json'
+        );
+    }
+
+    /**
+     * @param array<string,mixed> $overrides
+     */
+    private function settlementWindowCommand(array $overrides = []): RunSettlementWindowCommand
+    {
+        $config = require $this->basePath . '/config/payflow.php';
+        $settlementConfig = $config['settlement'] ?? [];
+        if (!is_array($settlementConfig)) {
+            $settlementConfig = [];
+        }
+        $settlementConfig = array_merge($settlementConfig, $overrides);
+
+        return new RunSettlementWindowCommand(
+            new CreateSettlementBatchHandler(
+                $this->transactionRepository(),
+                $this->settlementBatchRepository()
+            ),
+            new SubmitSettlementBatchHandler(
+                $this->settlementBatchRepository(),
+                new SettlementFileGenerator(),
+                new SettlementArtifactStore(
+                    $this->storagePath . '/settlement_artifacts',
+                    (bool) ($settlementConfig['fail_artifact_writes'] ?? false)
+                ),
+                new SettlementSubmissionGateway(
+                    is_array($settlementConfig['failure_processors'] ?? null) ? $settlementConfig['failure_processors'] : []
+                ),
+                $this->auditWriterUseCase(),
+                new KafkaCommandPublisher(
+                    $this->storagePath . '/command_bus.json',
+                    (string) ($settlementConfig['artifact_topic'] ?? 'settlement.events')
+                )
+            )
+        );
     }
 
     private function transactionEventTopic(): string
