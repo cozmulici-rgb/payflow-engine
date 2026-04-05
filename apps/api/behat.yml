@@ -1,0 +1,7 @@
+default:
+  suites:
+    default:
+      paths:
+        - tests/Behat/features
+      contexts:
+        - Tests\Behat\FeatureContext
