@@ -10,15 +10,21 @@ use Modules\MerchantManagement\Application\IssueApiCredential\IssueApiCredential
 
 final class IssueApiCredentialController
 {
-    public function __construct(private readonly IssueApiCredentialHandler $handler)
-    {
+    public function __construct(
+        private readonly IssueApiCredentialHandler $handler,
+        private readonly string $operatorSecret
+    ) {
     }
 
     public function handle(Request $request): Response
     {
         $operatorId = $request->header('X-Operator-Id');
         $operatorRole = $request->header('X-Operator-Role');
-        if ($operatorId === null || $operatorRole === null) {
+        $providedSecret = $request->header('X-Operator-Secret');
+        if ($operatorId === null || $operatorRole === null || $providedSecret === null) {
+            return Response::json(['message' => 'Authentication failed'], 401);
+        }
+        if (!hash_equals($this->operatorSecret, $providedSecret)) {
             return Response::json(['message' => 'Authentication failed'], 401);
         }
         if ($operatorRole !== 'merchant.write') {

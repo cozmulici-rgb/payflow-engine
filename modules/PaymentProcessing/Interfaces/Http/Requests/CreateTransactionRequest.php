@@ -31,7 +31,7 @@ final class CreateTransactionRequest
         $amount = trim((string) ($request->body['amount'] ?? ''));
         if ($amount === '') {
             $errors['amount'][] = 'The amount field is required.';
-        } elseif (!preg_match('/^\d+(?:\.\d{1,4})?$/', $amount) || (float) $amount <= 0) {
+        } elseif (!preg_match('/^\d+(?:\.\d{1,4})?$/', $amount) || bccomp($amount, '0', 4) <= 0) {
             $errors['amount'][] = 'The amount field must be a positive decimal value.';
         }
 

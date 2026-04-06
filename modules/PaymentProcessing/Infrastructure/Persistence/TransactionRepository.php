@@ -128,7 +128,7 @@ final class TransactionRepository
 
     private function writeJson(string $path, array $payload): void
     {
-        file_put_contents($path, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        file_put_contents($path, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
     }
 
     private function uuid(): string

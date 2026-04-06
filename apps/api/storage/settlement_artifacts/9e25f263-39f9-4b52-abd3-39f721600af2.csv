@@ -1,0 +1,2 @@
+batch_id,processor_id,currency,transaction_id,processor_reference,amount
+9e25f263-39f9-4b52-abd3-39f721600af2,processor_a,USD,7af21f89-7cd6-4912-828f-c90e436bf716,cap_a_7af21f89,74.0000

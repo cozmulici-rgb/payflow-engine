@@ -82,21 +82,25 @@ final class Application
 
     public function createMerchantController(): CreateMerchantController
     {
+        $config = require $this->basePath . '/config/payflow.php';
         return new CreateMerchantController(
             new CreateMerchantHandler(
                 $this->merchantRepository(),
                 $this->auditWriterUseCase()
-            )
+            ),
+            (string) ($config['operator']['secret'] ?? '')
         );
     }
 
     public function issueApiCredentialController(): IssueApiCredentialController
     {
+        $config = require $this->basePath . '/config/payflow.php';
         return new IssueApiCredentialController(
             new IssueApiCredentialHandler(
                 $this->merchantRepository(),
                 $this->auditWriterUseCase()
-            )
+            ),
+            (string) ($config['operator']['secret'] ?? '')
         );
     }
 
@@ -187,14 +191,15 @@ final class Application
             }
         }
 
-        $artifactPath = $this->storagePath . '/settlement_artifacts';
-        if (is_dir($artifactPath)) {
-            foreach (glob($artifactPath . '/*') ?: [] as $file) {
-                if (is_file($file)) {
-                    unlink($file);
+        foreach ([$this->storagePath . '/settlement_artifacts', $this->resolveArtifactPath()] as $artifactPath) {
+            if (is_dir($artifactPath)) {
+                foreach (glob($artifactPath . '/*') ?: [] as $file) {
+                    if (is_file($file)) {
+                        unlink($file);
+                    }
                 }
+                @rmdir($artifactPath);
             }
-            @rmdir($artifactPath);
         }
     }
 
@@ -270,7 +275,7 @@ final class Application
 
     public function readSettlementArtifacts(): array
     {
-        $artifactPath = $this->storagePath . '/settlement_artifacts';
+        $artifactPath = $this->resolveArtifactPath();
         if (!is_dir($artifactPath)) {
             return [];
         }
@@ -314,16 +319,16 @@ final class Application
         $config = require $this->basePath . '/config/payflow.php';
 
         return new KafkaCommandPublisher(
-            $this->storagePath . '/command_bus.json',
-            (string) ($config['payment_processing']['transaction_command_topic'] ?? 'transaction.processing')
+            topic: (string) ($config['payment_processing']['transaction_command_topic'] ?? 'transaction.processing'),
+            commandBusPath: $this->storagePath . '/command_bus.json',
         );
     }
 
     public function transactionEventPublisher(): KafkaCommandPublisher
     {
         return new KafkaCommandPublisher(
-            $this->storagePath . '/command_bus.json',
-            $this->transactionEventTopic()
+            topic: $this->transactionEventTopic(),
+            commandBusPath: $this->storagePath . '/command_bus.json',
         );
     }
 
@@ -442,7 +447,7 @@ final class Application
                 $this->settlementBatchRepository(),
                 new SettlementFileGenerator(),
                 new SettlementArtifactStore(
-                    $this->storagePath . '/settlement_artifacts',
+                    $this->resolveArtifactPath($settlementConfig),
                     (bool) ($settlementConfig['fail_artifact_writes'] ?? false)
                 ),
                 new SettlementSubmissionGateway(
@@ -450,11 +455,25 @@ final class Application
                 ),
                 $this->auditWriterUseCase(),
                 new KafkaCommandPublisher(
-                    $this->storagePath . '/command_bus.json',
-                    (string) ($settlementConfig['artifact_topic'] ?? 'settlement.events')
+                    topic: (string) ($settlementConfig['artifact_topic'] ?? 'settlement.events'),
+                    commandBusPath: $this->storagePath . '/command_bus.json',
                 )
             )
         );
+    }
+
+    /**
+     * @param array<string,mixed> $settlementConfig
+     */
+    private function resolveArtifactPath(array $settlementConfig = []): string
+    {
+        $disk = $settlementConfig['artifact_disk'] ?? null;
+        if (is_string($disk) && $disk !== '') {
+            $resolved = str_starts_with($disk, '/') ? $disk : $this->basePath . '/' . $disk;
+            return $resolved;
+        }
+
+        return $this->storagePath . '/settlement_artifacts';
     }
 
     private function transactionEventTopic(): string

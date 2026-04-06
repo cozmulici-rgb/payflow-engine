@@ -41,7 +41,7 @@ final class RefundTransactionHandler
         }
 
         $capturedAmount = (string) ($transaction->metadata['captured_amount'] ?? $transaction->amount);
-        if (!$this->isPositiveAmount($amount) || (float) $amount > (float) $capturedAmount) {
+        if (!$this->isPositiveAmount($amount) || bccomp($amount, $capturedAmount, 4) > 0) {
             return ['status' => 422, 'body' => ['message' => 'Refund amount is invalid']];
         }
 
@@ -193,12 +193,12 @@ final class RefundTransactionHandler
 
     private function isPositiveAmount(string $amount): bool
     {
-        return is_numeric($amount) && (float) $amount > 0;
+        return is_numeric($amount) && bccomp($amount, '0', 4) > 0;
     }
 
     private function normalizeAmount(string $amount): string
     {
-        return number_format((float) $amount, 2, '.', '');
+        return bcadd($amount, '0', 2);
     }
 
     private function uuid(): string

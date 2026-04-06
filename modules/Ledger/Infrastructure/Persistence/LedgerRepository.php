@@ -96,7 +96,7 @@ final class LedgerRepository
             $entries
         );
 
-        if ($amounts[0] !== $amounts[1]) {
+        if (bccomp($amounts[0], $amounts[1], 4) !== 0) {
             throw new \RuntimeException('Authorization postings must be balanced');
         }
     }
@@ -166,7 +166,7 @@ final class LedgerRepository
 
     private function normalizeAmount(string $amount): string
     {
-        return number_format((float) $amount, 4, '.', '');
+        return bcadd($amount, '0', 4);
     }
 
     private function readJson(string $path): array
@@ -181,6 +181,6 @@ final class LedgerRepository
 
     private function writeJson(string $path, array $payload): void
     {
-        file_put_contents($path, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        file_put_contents($path, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
     }
 }

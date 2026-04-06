@@ -97,9 +97,19 @@ final class SettlementBatchRepository
      */
     public function batchedTransactionIds(): array
     {
+        $exceptionBatchIds = [];
+        foreach ($this->readJson($this->batchesPath) as $batch) {
+            if (($batch['status'] ?? null) === 'exception') {
+                $exceptionBatchIds[$batch['id']] = true;
+            }
+        }
+
         return array_values(array_map(
             static fn (array $row): string => (string) $row['transaction_id'],
-            $this->readJson($this->itemsPath)
+            array_filter(
+                $this->readJson($this->itemsPath),
+                static fn (array $row): bool => !isset($exceptionBatchIds[$row['batch_id'] ?? ''])
+            )
         ));
     }
 
@@ -149,12 +159,12 @@ final class SettlementBatchRepository
      */
     private function sumAmounts(array $transactions): string
     {
-        $total = 0.0;
+        $total = '0';
         foreach ($transactions as $transaction) {
-            $total += (float) ($transaction->settlementAmount ?? $transaction->amount);
+            $total = bcadd($total, (string) ($transaction->settlementAmount ?? $transaction->amount), 4);
         }
 
-        return number_format($total, 4, '.', '');
+        return $total;
     }
 
     private function readJson(string $path): array
@@ -169,7 +179,7 @@ final class SettlementBatchRepository
 
     private function writeJson(string $path, array $payload): void
     {
-        file_put_contents($path, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        file_put_contents($path, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
     }
 
     private function uuid(): string

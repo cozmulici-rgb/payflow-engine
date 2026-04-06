@@ -22,6 +22,16 @@ spl_autoload_register(static function (string $class): void {
     }
 });
 
+// Minimal env() shim for when Laravel's helpers are not yet loaded (test harness,
+// local dev without vendor). The real Laravel env() takes precedence if defined.
+if (!function_exists('env')) {
+    function env(string $key, mixed $default = null): mixed
+    {
+        $value = $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key);
+        return $value !== false ? $value : $default;
+    }
+}
+
 require __DIR__ . '/../routes/api.php';
 require __DIR__ . '/../routes/console.php';
 
@@ -29,7 +39,7 @@ function bootstrap_app(string $basePath): App\Support\Application
 {
     $storagePath = $basePath . '/storage';
     if (!is_dir($storagePath)) {
-        mkdir($storagePath, 0777, true);
+        mkdir($storagePath, 0750, true);
     }
 
     return new App\Support\Application($basePath, $storagePath, api_routes());

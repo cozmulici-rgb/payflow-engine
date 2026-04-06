@@ -367,7 +367,7 @@ final class FeatureContext implements Context
             new ProcessorRouter(),
             new FraudScreeningService(),
             new FxRateLockService(new RateLockRepository($storage . '/rate_locks.json'), $basePath . '/config/payflow.php'),
-            new KafkaCommandPublisher($storage . '/command_bus.json', 'transaction.events'),
+            new KafkaCommandPublisher(topic: 'transaction.events', commandBusPath: $storage . '/command_bus.json'),
             new WriteAuditRecord(new FileAuditLogWriter($storage . '/audit_log.json')),
             new PostAuthorizationLedgerEntries(new LedgerRepository(
                 $storage . '/missing_accounts.json',
@@ -859,6 +859,32 @@ final class FeatureContext implements Context
         $this->assertSame($reason, $batches[0]['exception_reason'] ?? null);
     }
 
+    /** @When the settlement window runs again for batch date :batchDate */
+    public function theSettlementWindowRunsAgainForBatchDate(string $batchDate): void
+    {
+        $this->settlementRunResult = $this->app->runSettlementWindow($batchDate);
+    }
+
+    /** @Then the settlement run should report :count submitted batch */
+    public function theSettlementRunShouldReportSubmittedBatch(int $count): void
+    {
+        $this->assertSame($count, $this->settlementRunResult['submitted_count'] ?? null, 'Expected submitted_count=' . $count);
+    }
+
+    /** @Then the settlement run should report :count exception batch */
+    public function theSettlementRunShouldReportExceptionBatch(int $count): void
+    {
+        $this->assertSame($count, $this->settlementRunResult['exception_count'] ?? null, 'Expected exception_count=' . $count);
+    }
+
+    /** @Then the latest settlement batch status should be :status */
+    public function theLatestSettlementBatchStatusShouldBe(string $status): void
+    {
+        $batches = $this->app->readSettlementBatches();
+        $latest = end($batches);
+        $this->assertSame($status, $latest['status'] ?? null);
+    }
+
     /** @Then the first delivery event type should be :eventType */
     public function theFirstDeliveryEventTypeShouldBe(string $eventType): void
     {
@@ -884,11 +910,89 @@ final class FeatureContext implements Context
         $this->assertSame($count, count($deliveries));
     }
 
+    /** @Given a pending authorization transaction that will timeout with a failing inquiry */
+    public function aPendingAuthorizationTransactionThatWillTimeoutWithAFailingInquiry(): void
+    {
+        $this->response = $this->app->handle(new Request(
+            'POST',
+            '/v1/transactions',
+            $this->merchantHeaders('idem-worker-timeout-fail'),
+            [
+                'type' => 'authorization',
+                'amount' => '75.00',
+                'currency' => 'CAD',
+                'payment_method' => ['type' => 'card_token', 'token' => 'tok-timeout-fail'],
+                'metadata' => ['channel' => 'timeout-fail'],
+            ]
+        ));
+
+        $this->currentTransactionId = (string) ($this->response->body['data']['transaction_id'] ?? '');
+    }
+
+    /** @Then /^exactly (\d+) "([^"]+)" event should be published$/ */
+    public function exactlyNamedEventShouldBePublished(int $count, string $eventType): void
+    {
+        $matches = array_values(array_filter(
+            $this->app->readCommandBus(),
+            static fn (array $message): bool => ($message['payload']['event_type'] ?? null) === $eventType
+        ));
+
+        $this->assertSame($count, count($matches), sprintf('Expected exactly %d "%s" event(s), got %d', $count, $eventType, count($matches)));
+    }
+
+    /** @Then the endpoint :url should receive exactly :count deliveries */
+    public function theEndpointShouldReceiveExactlyDeliveries(string $url, int $count): void
+    {
+        $deliveries = array_values(array_filter(
+            $this->app->readWebhookDeliveries(),
+            fn (array $delivery): bool => ($delivery['url'] ?? null) === $url
+        ));
+
+        $this->assertSame($count, count($deliveries), sprintf('Expected exactly %d deliveries to endpoint [%s], got %d', $count, $url, count($deliveries)));
+    }
+
+    /** @Then /^exactly (\d+) settlement batches? should be stored$/ */
+    public function exactlySettlementBatchesShouldBeStored(int $count): void
+    {
+        $this->assertSame($count, count($this->app->readSettlementBatches()));
+    }
+
+    /** @Given the merchant has captured settlement-eligible transactions for amounts and currencies: */
+    public function theMerchantHasCapturedSettlementEligibleTransactionsForAmountsAndCurrencies(\Behat\Gherkin\Node\TableNode $table): void
+    {
+        foreach ($table->getRows() as $index => $row) {
+            $amount = (string) ($row[0] ?? '');
+            $currency = (string) ($row[1] ?? 'CAD');
+            $settlementCurrency = $currency;
+            $transactionId = $this->createAuthorizedTransaction($amount, 'CAD', 'web', $settlementCurrency, 'idem-multi-currency-' . $index);
+            $this->currentTransactionId = $transactionId;
+            $this->theMerchantCapturesTheTransactionForAmount($amount);
+            $this->assertSame(202, $this->requireResponse()->status);
+        }
+    }
+
+    /** @Then /^the settlement run should report (\d+) submitted batches?$/ */
+    public function theSettlementRunShouldReportSubmittedBatches(int $count): void
+    {
+        $this->assertSame($count, $this->settlementRunResult['submitted_count'] ?? null, 'Expected submitted_count=' . $count);
+    }
+
+    /** @Then the settlement batches should cover currencies :currencyA and :currencyB */
+    public function theSettlementBatchesShouldCoverCurrencies(string $currencyA, string $currencyB): void
+    {
+        $currencies = array_map(static fn (array $b): string => (string) ($b['currency'] ?? ''), $this->app->readSettlementBatches());
+        sort($currencies);
+        $expected = [$currencyA, $currencyB];
+        sort($expected);
+        $this->assertSame($expected, $currencies, sprintf('Expected batches for currencies [%s, %s]', $currencyA, $currencyB));
+    }
+
     private function operatorHeaders(?string $correlationId = 'corr-operator'): array
     {
         return [
             'X-Operator-Id' => 'op-123',
             'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
             'X-Correlation-Id' => $correlationId ?? 'corr-operator',
         ];
     }

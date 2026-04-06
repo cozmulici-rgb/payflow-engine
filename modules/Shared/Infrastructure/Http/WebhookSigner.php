@@ -6,8 +6,11 @@ namespace Modules\Shared\Infrastructure\Http;
 
 final class WebhookSigner
 {
-    public function sign(string $payload, string $secret): string
+    public function sign(string $payload, string $secret, int $timestamp): string
     {
-        return hash_hmac('sha256', $payload, $secret);
+        $signedPayload = 't=' . $timestamp . '.' . $payload;
+        $signature = hash_hmac('sha256', $signedPayload, $secret);
+
+        return 't=' . $timestamp . ',v1=' . $signature;
     }
 }

@@ -14,6 +14,7 @@ $createMerchant = static function (string $displayName) use ($app): array {
         [
             'X-Operator-Id' => 'op-123',
             'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
         ],
         [
             'legal_name' => $displayName . ' Legal',
@@ -30,6 +31,7 @@ $createMerchant = static function (string $displayName) use ($app): array {
         [
             'X-Operator-Id' => 'op-123',
             'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
         ],
         ['merchant_id' => $merchantId]
     ));
@@ -123,3 +125,28 @@ TestCase::assertTrue($app->readRateLocks()[0]['used_at'] !== null, 'Expected use
 
 $app->processPendingTransactionCommands();
 TestCase::assertSame(1, count($app->readProcessedEvents()));
+
+// Test: timeout-fail channel — processor timeout + inquiry fails → transaction marked Failed
+$app->resetStorage();
+[$merchantId, $keyId, $secret] = $createMerchant('Timeout-Fail Merchant');
+$timeoutFailId = $createTransaction([
+    'X-Merchant-Id' => $merchantId,
+    'X-Merchant-Key-Id' => $keyId,
+    'X-Merchant-Secret' => $secret,
+    'Idempotency-Key' => 'idem-worker-timeout-fail',
+    'X-Correlation-Id' => 'corr-worker-timeout-fail',
+], [
+    'type' => 'authorization',
+    'amount' => '75.00',
+    'currency' => 'CAD',
+    'payment_method' => ['type' => 'card_token', 'token' => 'tok-timeout-fail'],
+    'metadata' => ['channel' => 'timeout-fail'],
+]);
+
+$app->processPendingTransactionCommands();
+$timeoutFailTxn = $app->transactionRepository()->findById($timeoutFailId);
+TestCase::assertSame('failed', $timeoutFailTxn?->status->value, 'Transaction should be failed after timeout+inquiry failure');
+TestCase::assertSame('processor_timeout', $timeoutFailTxn?->errorCode, 'Error code should be processor_timeout');
+
+$events = array_filter($app->readCommandBus(), static fn ($e) => ($e['payload']['event_type'] ?? '') === 'transaction.failed');
+TestCase::assertSame(1, count(array_values($events)), 'One transaction.failed event should be published');

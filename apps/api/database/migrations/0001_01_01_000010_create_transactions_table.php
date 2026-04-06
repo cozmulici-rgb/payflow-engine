@@ -1,23 +1,42 @@
 <?php
 
-return <<<'SQL'
-CREATE TABLE transactions (
-    id CHAR(36) PRIMARY KEY,
-    merchant_id CHAR(36) NOT NULL,
-    idempotency_key VARCHAR(255) NOT NULL,
-    type VARCHAR(50) NOT NULL,
-    amount DECIMAL(18,4) NOT NULL,
-    currency CHAR(3) NOT NULL,
-    settlement_currency CHAR(3) NOT NULL,
-    payment_method_type VARCHAR(50) NOT NULL,
-    payment_method_token VARCHAR(255) NOT NULL,
-    capture_mode VARCHAR(50) NOT NULL,
-    reference VARCHAR(255) NULL,
-    status VARCHAR(50) NOT NULL,
-    processor_reference VARCHAR(255) NULL,
-    metadata JSON NULL,
-    created_at DATETIME(6) NOT NULL,
-    updated_at DATETIME(6) NOT NULL,
-    UNIQUE KEY uk_merchant_idempotency (merchant_id, idempotency_key)
-);
-SQL;
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('transactions', static function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->uuid('merchant_id')->index();
+            $table->string('idempotency_key');
+            $table->string('type', 50);
+            $table->decimal('amount', 18, 4);
+            $table->char('currency', 3);
+            $table->char('settlement_currency', 3);
+            $table->string('payment_method_type', 50);
+            $table->string('payment_method_token');
+            $table->string('capture_mode', 50);
+            $table->string('reference')->nullable();
+            $table->string('status', 50)->index();
+            $table->string('processor_id', 100)->nullable();
+            $table->string('processor_reference')->nullable();
+            $table->string('error_code', 100)->nullable();
+            $table->decimal('settlement_amount', 18, 4)->nullable();
+            $table->json('metadata')->nullable();
+            $table->dateTimeTz('created_at', 6)->index();
+            $table->dateTimeTz('updated_at', 6);
+
+            $table->unique(['merchant_id', 'idempotency_key'], 'uk_merchant_idempotency');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('transactions');
+    }
+};

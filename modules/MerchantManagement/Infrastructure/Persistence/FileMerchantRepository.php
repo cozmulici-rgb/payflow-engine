@@ -90,6 +90,6 @@ final class FileMerchantRepository
 
     private function writeAll(array $items): void
     {
-        file_put_contents($this->path, json_encode($items, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        file_put_contents($this->path, json_encode($items, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
     }
 }

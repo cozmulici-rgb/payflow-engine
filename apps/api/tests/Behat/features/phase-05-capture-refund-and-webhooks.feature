@@ -40,6 +40,19 @@ Feature: Phase 05 capture, refund, and merchant webhooks
     Then the response status should be 422
     And the response body should contain "message" = "Refund amount is invalid"
 
+  Scenario: Merchant performs a full capture of the entire authorized amount
+    When the merchant captures the transaction for amount "125.50"
+    Then the response status should be 202
+    And the response body should contain "status" = "captured"
+    And the response body should contain "captured_amount" = "125.50"
+
+  Scenario: Merchant performs a full refund of the captured amount
+    Given the merchant already captured the transaction for amount "125.50"
+    When the merchant refunds the transaction for amount "125.50"
+    Then the response status should be 202
+    And the response body should contain "status" = "refunded"
+    And the response body should contain "refund_amount" = "125.50"
+
   Scenario: Matching webhook endpoints receive signed lifecycle notifications
     Given the merchant registered webhook endpoint "https://merchant.example/webhooks/payments" for:
       | transaction.authorized |
@@ -53,3 +66,9 @@ Feature: Phase 05 capture, refund, and merchant webhooks
     And the first delivery event type should be "transaction.authorized"
     And delivered webhook payloads should contain signatures
     And the endpoint "https://merchant.example/failover/webhooks/payments" should receive exactly 1 successful delivery
+
+  Scenario: Webhook endpoint does not receive unsubscribed event types
+    Given the merchant registered webhook endpoint "https://merchant.example/webhooks/filtered" for:
+      | transaction.captured |
+    When the webhook worker processes transaction lifecycle events
+    Then the endpoint "https://merchant.example/webhooks/filtered" should receive exactly 0 deliveries

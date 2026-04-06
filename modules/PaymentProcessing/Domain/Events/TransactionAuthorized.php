@@ -6,6 +6,9 @@ namespace Modules\PaymentProcessing\Domain\Events;
 
 final class TransactionAuthorized
 {
+    private readonly string $eventId;
+    private readonly string $occurredAt;
+
     public function __construct(
         private readonly string $correlationId,
         private readonly string $transactionId,
@@ -17,6 +20,8 @@ final class TransactionAuthorized
         private readonly string $settlementAmount,
         private readonly string $settlementCurrency
     ) {
+        $this->eventId = $this->uuid();
+        $this->occurredAt = gmdate(DATE_ATOM);
     }
 
     /**
@@ -25,9 +30,9 @@ final class TransactionAuthorized
     public function toPayload(): array
     {
         return [
-            'event_id' => $this->uuid(),
+            'event_id' => $this->eventId,
             'event_type' => 'transaction.authorized',
-            'occurred_at' => gmdate(DATE_ATOM),
+            'occurred_at' => $this->occurredAt,
             'correlation_id' => $this->correlationId,
             'transaction_id' => $this->transactionId,
             'merchant_id' => $this->merchantId,

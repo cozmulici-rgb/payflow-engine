@@ -22,8 +22,15 @@ final class RegisterWebhookHandler
      */
     public function handle(string $merchantId, string $url, array $eventTypes, string $correlationId): array
     {
-        if (!str_starts_with($url, 'https://')) {
+        if (!str_starts_with($url, 'https://') || filter_var($url, FILTER_VALIDATE_URL) === false) {
             return ['status' => 422, 'body' => ['message' => 'Webhook URL must use https']];
+        }
+
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        $ip = gethostbyname($host);
+        // Only block if DNS resolved to an IP (gethostbyname returns hostname unchanged on failure)
+        if ($ip !== $host && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return ['status' => 422, 'body' => ['message' => 'Webhook URL must not target private or reserved IP ranges']];
         }
 
         if ($eventTypes === []) {
@@ -61,7 +68,6 @@ final class RegisterWebhookHandler
                     'webhook_endpoint_id' => $endpoint->id,
                     'url' => $endpoint->url,
                     'event_types' => $endpoint->eventTypes,
-                    'signing_secret' => $endpoint->signingSecret,
                 ],
             ],
         ];

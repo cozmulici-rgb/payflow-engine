@@ -52,7 +52,7 @@ final class WebhookDispatchWorker
                 'url' => $endpoint->url,
                 'attempt' => 1,
                 'status' => 'delivered',
-                'signature' => $this->signer->sign($payload, $endpoint->signingSecret),
+                'signature' => $this->signer->sign($payload, $endpoint->signingSecret, time()),
                 'payload' => $event,
                 'delivered_at' => gmdate(DATE_ATOM),
                 'created_at' => gmdate(DATE_ATOM),
@@ -97,7 +97,7 @@ final class WebhookDispatchWorker
             'event_id' => $eventId,
             'processed_at' => gmdate(DATE_ATOM),
         ];
-        file_put_contents($this->processedEventsPath, json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        file_put_contents($this->processedEventsPath, json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
     }
 
     private function readProcessedEvents(): array

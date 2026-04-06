@@ -19,12 +19,12 @@ final class SettlementArtifactStore
         }
 
         if (!is_dir($this->artifactsPath)) {
-            mkdir($this->artifactsPath, 0777, true);
+            mkdir($this->artifactsPath, 0750, true);
         }
 
         $key = 'settlement/' . $batchId . '.csv';
         $path = $this->artifactsPath . '/' . basename($batchId) . '.csv';
-        file_put_contents($path, $contents);
+        file_put_contents($path, $contents, LOCK_EX);
 
         return $key;
     }

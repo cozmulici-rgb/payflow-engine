@@ -37,7 +37,7 @@ final class CaptureTransactionHandler
             return ['status' => 422, 'body' => ['message' => 'Transaction is not eligible for capture']];
         }
 
-        if (!$this->isPositiveAmount($amount) || (float) $amount > (float) $transaction->amount) {
+        if (!$this->isPositiveAmount($amount) || bccomp($amount, $transaction->amount, 4) > 0) {
             return ['status' => 422, 'body' => ['message' => 'Capture amount is invalid']];
         }
 
@@ -102,12 +102,12 @@ final class CaptureTransactionHandler
 
     private function isPositiveAmount(string $amount): bool
     {
-        return is_numeric($amount) && (float) $amount > 0;
+        return is_numeric($amount) && bccomp($amount, '0', 4) > 0;
     }
 
     private function normalizeAmount(string $amount): string
     {
-        return number_format((float) $amount, 2, '.', '');
+        return bcadd($amount, '0', 2);
     }
 
     private function resolveSettlementAmount(Transaction $transaction, string $amount): string

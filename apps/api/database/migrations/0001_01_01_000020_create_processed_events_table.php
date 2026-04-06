@@ -1,11 +1,27 @@
 <?php
 
-return <<<'SQL'
-CREATE TABLE processed_events (
-    id CHAR(36) PRIMARY KEY,
-    consumer_group VARCHAR(100) NOT NULL,
-    event_id VARCHAR(255) NOT NULL,
-    processed_at DATETIME(6) NOT NULL,
-    UNIQUE KEY uk_consumer_event (consumer_group, event_id)
-);
-SQL;
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('processed_events', static function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->string('consumer_group', 100);
+            $table->string('event_id');
+            $table->dateTimeTz('processed_at', 6);
+
+            $table->unique(['consumer_group', 'event_id'], 'uk_consumer_event');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('processed_events');
+    }
+};

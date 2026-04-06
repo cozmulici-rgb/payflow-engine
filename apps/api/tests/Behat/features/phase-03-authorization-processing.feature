@@ -36,3 +36,10 @@ Feature: Phase 03 authorization worker processing
     Given a transaction is in status "failed"
     When the state machine evaluates a transition to "captured"
     Then the transition should be rejected
+
+  Scenario: Worker marks a transaction failed when processor timeout inquiry also fails
+    Given a pending authorization transaction that will timeout with a failing inquiry
+    When the payment worker processes pending transaction commands
+    Then the transaction status should become "failed"
+    And the transaction error code should be "processor_timeout"
+    And exactly 1 "transaction.failed" event should be published

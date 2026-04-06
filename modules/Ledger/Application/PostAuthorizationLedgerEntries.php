@@ -112,7 +112,7 @@ final class PostAuthorizationLedgerEntries implements LedgerPostingService
 
     private function normalizeAmount(string $amount): string
     {
-        return number_format((float) $amount, 4, '.', '');
+        return bcadd($amount, '0', 4);
     }
 
     private function refundSettlementAmount(Transaction $transaction): string
@@ -126,14 +126,13 @@ final class PostAuthorizationLedgerEntries implements LedgerPostingService
             return $this->normalizeAmount((string) $refundAmount);
         }
 
-        $transactionAmount = (float) $transaction->amount;
-        if ($transactionAmount <= 0) {
+        if (bccomp((string) $transaction->amount, '0', 4) <= 0) {
             return $this->normalizeAmount((string) $refundAmount);
         }
 
-        $settlementRatio = (float) $transaction->settlementAmount / $transactionAmount;
+        $settlementRatio = bcdiv((string) $transaction->settlementAmount, (string) $transaction->amount, 8);
 
-        return $this->normalizeAmount((string) ((float) $refundAmount * $settlementRatio));
+        return $this->normalizeAmount(bcmul((string) $refundAmount, $settlementRatio, 8));
     }
 
     private function uuid(): string

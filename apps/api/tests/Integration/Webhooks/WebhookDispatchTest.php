@@ -11,6 +11,7 @@ $app->resetStorage();
 $merchant = $app->handle(new Request('POST', '/internal/v1/merchants', [
     'X-Operator-Id' => 'op-123',
     'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
 ], [
     'legal_name' => 'Webhook Merchant Legal',
     'display_name' => 'Webhook Merchant',
@@ -22,6 +23,7 @@ $merchantId = $merchant->body['data']['merchant_id'];
 $credential = $app->handle(new Request('POST', '/internal/v1/merchants/credentials', [
     'X-Operator-Id' => 'op-123',
     'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
 ], ['merchant_id' => $merchantId]));
 
 $headers = [
@@ -93,6 +95,7 @@ $customApp->resetStorage();
 $customMerchant = $customApp->handle(new Request('POST', '/internal/v1/merchants', [
     'X-Operator-Id' => 'op-123',
     'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
 ], [
     'legal_name' => 'Webhook Topic Merchant Legal',
     'display_name' => 'Webhook Topic Merchant',
@@ -104,6 +107,7 @@ $customMerchantId = $customMerchant->body['data']['merchant_id'];
 $customCredential = $customApp->handle(new Request('POST', '/internal/v1/merchants/credentials', [
     'X-Operator-Id' => 'op-123',
     'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
 ], ['merchant_id' => $customMerchantId]));
 
 $customHeaders = [
@@ -135,3 +139,37 @@ $customApp->handle(new Request('POST', '/v1/transactions/' . $customTransactionI
 TestCase::assertSame('merchant.transaction.events', $customApp->readCommandBus()[1]['topic']);
 TestCase::assertSame(2, $customApp->processWebhookEvents());
 TestCase::assertSame(2, count($customApp->readWebhookDeliveries()));
+
+// Test: merchant with no webhook endpoints registered → 0 deliveries
+$app->resetStorage();
+$noEndpointMerchant = $app->handle(new Request('POST', '/internal/v1/merchants', [
+    'X-Operator-Id' => 'op-123',
+    'X-Operator-Role' => 'merchant.write',
+    'X-Operator-Secret' => 'op-secret-change-me',
+], [
+    'legal_name' => 'No Endpoint Merchant Legal',
+    'display_name' => 'No Endpoint Merchant',
+    'country' => 'CA',
+    'default_currency' => 'CAD',
+]));
+$noEndpointMerchantId = $noEndpointMerchant->body['data']['merchant_id'];
+$noEndpointCred = $app->handle(new Request('POST', '/internal/v1/merchants/credentials', [
+    'X-Operator-Id' => 'op-123',
+    'X-Operator-Role' => 'merchant.write',
+    'X-Operator-Secret' => 'op-secret-change-me',
+], ['merchant_id' => $noEndpointMerchantId]));
+$noEndpointHeaders = [
+    'X-Merchant-Id' => $noEndpointMerchantId,
+    'X-Merchant-Key-Id' => $noEndpointCred->body['data']['key_id'],
+    'X-Merchant-Secret' => $noEndpointCred->body['data']['secret'],
+];
+$noEndpointTxn = $app->handle(new Request('POST', '/v1/transactions', $noEndpointHeaders + ['Idempotency-Key' => 'idem-no-endpoint'], [
+    'type' => 'authorization',
+    'amount' => '10.00',
+    'currency' => 'CAD',
+    'payment_method' => ['type' => 'card_token', 'token' => 'tok_no_endpoint'],
+    'capture_mode' => 'manual',
+]));
+$app->processPendingTransactionCommands();
+$app->processWebhookEvents();
+TestCase::assertSame(0, count($app->readWebhookDeliveries()), 'No webhook deliveries when no endpoints registered');

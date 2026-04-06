@@ -25,7 +25,7 @@ foreach ([$transactionsPath, $historyPath, $idempotencyPath, $commandsPath, $aud
 $handler = new CreateTransactionHandler(
     new TransactionRepository($transactionsPath, $historyPath),
     new IdempotencyRepository($idempotencyPath),
-    new KafkaCommandPublisher($commandsPath, 'transaction.processing'),
+    new KafkaCommandPublisher(topic: 'transaction.processing', commandBusPath: $commandsPath),
     new WriteAuditRecord(new FileAuditLogWriter($auditPath))
 );
 

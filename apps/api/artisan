@@ -17,7 +17,7 @@ if ($command === 'settlement:run') {
     $batchDate = $argv[2] ?? gmdate('Y-m-d');
     $result = $app->runSettlementWindow($batchDate);
     fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
-    exit(0);
+    exit($result['exception_count'] > 0 ? 1 : 0);
 }
 
 fwrite(STDERR, "Unknown or missing command. Supported: test, settlement:run\n");

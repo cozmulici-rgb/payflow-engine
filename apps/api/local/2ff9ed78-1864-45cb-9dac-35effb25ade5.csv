@@ -1,0 +1,2 @@
+batch_id,processor_id,currency,transaction_id,processor_reference,amount
+2ff9ed78-1864-45cb-9dac-35effb25ade5,processor_b,CAD,d3d694bc-459a-4eda-9b41-6fe2b141c986,cap_b_d3d694bc,75.00

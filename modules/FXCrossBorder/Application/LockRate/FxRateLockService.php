@@ -22,7 +22,7 @@ final class FxRateLockService
         $config = require $this->configPath;
         $key = strtoupper($request->baseCurrency) . ':' . strtoupper($request->quoteCurrency);
         $rate = (string) ($config['fx']['default_rates'][$key] ?? '1.00000000');
-        $settlementAmount = number_format((float) $request->amount * (float) $rate, 4, '.', '');
+        $settlementAmount = bcmul($request->amount, $rate, 4);
 
         return $this->locks->create([
             'transaction_id' => $request->transactionId,

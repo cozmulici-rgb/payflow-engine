@@ -11,6 +11,7 @@ $app->resetStorage();
 $merchant = $app->handle(new Request('POST', '/internal/v1/merchants', [
     'X-Operator-Id' => 'op-123',
     'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
 ], [
     'legal_name' => 'Settlement Failure Merchant Legal',
     'display_name' => 'Settlement Failure Merchant',
@@ -22,6 +23,7 @@ $merchantId = $merchant->body['data']['merchant_id'];
 $credential = $app->handle(new Request('POST', '/internal/v1/merchants/credentials', [
     'X-Operator-Id' => 'op-123',
     'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
 ], ['merchant_id' => $merchantId]));
 
 $headers = [

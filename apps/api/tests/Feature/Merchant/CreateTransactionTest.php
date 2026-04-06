@@ -14,6 +14,7 @@ $merchantResponse = $app->handle(new Request(
     [
         'X-Operator-Id' => 'op-123',
         'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
         'X-Correlation-Id' => 'corr-merchant',
     ],
     [
@@ -31,6 +32,7 @@ $credentialResponse = $app->handle(new Request(
     [
         'X-Operator-Id' => 'op-123',
         'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
         'X-Correlation-Id' => 'corr-credential',
     ],
     [

@@ -13,12 +13,13 @@ final class SettlementFileGenerator
      */
     public function generate(SettlementBatch $batch, array $items): string
     {
-        $lines = [
-            'batch_id,processor_id,currency,transaction_id,processor_reference,amount',
-        ];
+        $stream = fopen('php://temp', 'r+');
+        assert(is_resource($stream));
+
+        fputcsv($stream, ['batch_id', 'processor_id', 'currency', 'transaction_id', 'processor_reference', 'amount']);
 
         foreach ($items as $item) {
-            $lines[] = implode(',', [
+            fputcsv($stream, [
                 $batch->id,
                 $batch->processorId,
                 $batch->currency,
@@ -28,6 +29,10 @@ final class SettlementFileGenerator
             ]);
         }
 
-        return implode("\n", $lines) . "\n";
+        rewind($stream);
+        $content = (string) stream_get_contents($stream);
+        fclose($stream);
+
+        return $content;
     }
 }

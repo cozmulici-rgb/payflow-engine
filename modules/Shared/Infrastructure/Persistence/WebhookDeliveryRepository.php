@@ -17,7 +17,7 @@ final class WebhookDeliveryRepository
     {
         $rows = $this->readAll();
         $rows[] = $delivery;
-        file_put_contents($this->path, json_encode($rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        file_put_contents($this->path, json_encode($rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
     }
 
     public function readAll(): array

@@ -49,7 +49,7 @@ final class AuthorizeTransactionHandler
         }
 
         if (!TransactionStateMachine::canTransition($transaction->status, TransactionStatus::Authorized)
-            || !TransactionStateMachine::canTransition($transaction->status, TransactionStatus::Failed)) {
+            && !TransactionStateMachine::canTransition($transaction->status, TransactionStatus::Failed)) {
             throw new \RuntimeException('Transaction state machine does not allow phase 3 transitions');
         }
 
@@ -61,6 +61,10 @@ final class AuthorizeTransactionHandler
                 baseCurrency: $transaction->currency,
                 quoteCurrency: $transaction->settlementCurrency
             ));
+
+            if (isset($rateLock['expires_at']) && strtotime((string) $rateLock['expires_at']) < time()) {
+                throw new \RuntimeException('FX rate lock has expired before authorization could proceed');
+            }
         }
 
         $fraudDecision = $this->fraud->screen($transaction);
@@ -209,7 +213,7 @@ final class AuthorizeTransactionHandler
             'event_id' => $eventId,
             'processed_at' => gmdate(DATE_ATOM),
         ];
-        file_put_contents($this->processedEventsPath, json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        file_put_contents($this->processedEventsPath, json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
     }
 
     private function readProcessedEvents(): array

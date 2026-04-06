@@ -26,6 +26,7 @@ $createMerchant = static function (string $displayName) use ($app): array {
         [
             'X-Operator-Id' => 'op-123',
             'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
         ],
         [
             'legal_name' => $displayName . ' Legal',
@@ -42,6 +43,7 @@ $createMerchant = static function (string $displayName) use ($app): array {
         [
             'X-Operator-Id' => 'op-123',
             'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
         ],
         ['merchant_id' => $merchantId]
     ));
@@ -132,7 +134,7 @@ $handler = new AuthorizeTransactionHandler(
     new ProcessorRouter(),
     new FraudScreeningService(),
     new FxRateLockService(new RateLockRepository($storage . '/rate_locks.json'), $basePath . '/config/payflow.php'),
-    new KafkaCommandPublisher($storage . '/command_bus.json', 'transaction.events'),
+    new KafkaCommandPublisher(topic: 'transaction.events', commandBusPath: $storage . '/command_bus.json'),
     new WriteAuditRecord(new FileAuditLogWriter($storage . '/audit_log.json')),
     new PostAuthorizationLedgerEntries(new LedgerRepository(
         $storage . '/missing_accounts.json',

@@ -79,6 +79,48 @@ final class ProcessorRouter
                     return new ProcessorRefundResult(false, 'ref_fail', 'processor_refund_failed', 'Processor refund failed');
                 }
             },
+            'ref-fail' => new class implements TransactionProcessor {
+                public function authorize(Transaction $transaction, ?array $rateLock): ProcessorAuthorizationResult
+                {
+                    return new ProcessorAuthorizationResult(true, 'processor_a', 'proc_a_' . substr($transaction->id, 0, 8));
+                }
+
+                public function inquire(string $idempotencyKey): ProcessorAuthorizationResult
+                {
+                    return new ProcessorAuthorizationResult(false, 'processor_a', 'proc_a_inquiry', 'processor_timeout', 'Processor status unavailable');
+                }
+
+                public function capture(Transaction $transaction, string $amount): ProcessorCaptureResult
+                {
+                    return new ProcessorCaptureResult(true, 'cap_a_' . substr($transaction->id, 0, 8));
+                }
+
+                public function refund(Transaction $transaction, string $amount): ProcessorRefundResult
+                {
+                    return new ProcessorRefundResult(false, 'ref_fail', 'processor_refund_failed', 'Processor refund declined');
+                }
+            },
+            'cap-fail' => new class implements TransactionProcessor {
+                public function authorize(Transaction $transaction, ?array $rateLock): ProcessorAuthorizationResult
+                {
+                    return new ProcessorAuthorizationResult(true, 'processor_a', 'proc_a_' . substr($transaction->id, 0, 8));
+                }
+
+                public function inquire(string $idempotencyKey): ProcessorAuthorizationResult
+                {
+                    return new ProcessorAuthorizationResult(false, 'processor_a', 'proc_a_inquiry', 'processor_timeout', 'Processor status unavailable');
+                }
+
+                public function capture(Transaction $transaction, string $amount): ProcessorCaptureResult
+                {
+                    return new ProcessorCaptureResult(false, 'cap_fail', 'processor_capture_failed', 'Processor capture declined');
+                }
+
+                public function refund(Transaction $transaction, string $amount): ProcessorRefundResult
+                {
+                    return new ProcessorRefundResult(false, 'ref_fail', 'processor_refund_failed', 'Processor refund declined');
+                }
+            },
             default => new class implements TransactionProcessor {
                 public function authorize(Transaction $transaction, ?array $rateLock): ProcessorAuthorizationResult
                 {

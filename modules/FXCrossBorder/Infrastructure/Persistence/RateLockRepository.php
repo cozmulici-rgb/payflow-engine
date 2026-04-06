@@ -23,7 +23,7 @@ final class RateLockRepository
             'used_at' => null,
         ]);
         $locks[] = $record;
-        file_put_contents($this->path, json_encode($locks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        file_put_contents($this->path, json_encode($locks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
 
         return $record;
     }
@@ -38,9 +38,11 @@ final class RateLockRepository
             }
 
             $locks[$index]['used_at'] = gmdate(DATE_ATOM);
-            file_put_contents($this->path, json_encode($locks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            file_put_contents($this->path, json_encode($locks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
             return;
         }
+
+        throw new \RuntimeException(sprintf('Rate lock [%s] not found', $rateLockId));
     }
 
     private function readAll(): array

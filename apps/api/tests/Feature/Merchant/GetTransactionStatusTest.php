@@ -11,6 +11,7 @@ $app->resetStorage();
 $operatorHeaders = [
     'X-Operator-Id' => 'op-123',
     'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
 ];
 
 $merchantA = $app->handle(new Request(

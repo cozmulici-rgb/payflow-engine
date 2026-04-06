@@ -14,6 +14,7 @@ $response = $app->handle(new Request(
     [
         'X-Operator-Id' => 'op-123',
         'X-Operator-Role' => 'merchant.write',
+            'X-Operator-Secret' => 'op-secret-change-me',
     ],
     [
         'legal_name' => 'Acme Payments Canada Inc.',
